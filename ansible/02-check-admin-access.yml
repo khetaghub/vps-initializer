@@ -1,0 +1,42 @@
+---
+- name: Проверить доступ нового администратора на новом SSH-порту
+  hosts: servers
+  remote_user: "{{ new_user }}"
+  become: true
+  vars:
+    ansible_port: "{{ new_ssh_port }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking={{ ssh_host_key_checking_mode | default('accept-new') }}"
+    ansible_ssh_private_key_file: "{{ new_user_ssh_private_key_file }}"
+
+  pre_tasks:
+    - name: Проверить настройки SSH-ключа нового пользователя
+      ansible.builtin.assert:
+        that:
+          - new_user_ssh_private_key_file is defined
+          - new_user_ssh_private_key_file | length > 0
+        fail_msg: "Укажите new_user_ssh_private_key_file в inventory.ini для второго playbook."
+
+  tasks:
+    - name: Проверить пользователя текущего SSH-сеанса
+      ansible.builtin.command: whoami
+      become: false
+      register: ssh_user_check
+      changed_when: false
+
+    - name: Проверить работу sudo
+      ansible.builtin.command: whoami
+      register: sudo_user_check
+      changed_when: false
+
+    - name: Проверить статус fail2ban для sshd
+      ansible.builtin.command: fail2ban-client status sshd
+      register: fail2ban_status
+      changed_when: false
+
+    - name: Показать результаты проверки
+      ansible.builtin.debug:
+        msg:
+          - "Пользователь SSH-сеанса: {{ ssh_user_check.stdout }}"
+          - "Пользователь через sudo: {{ sudo_user_check.stdout }}"
+          - "Статус fail2ban:"
+          - "{{ fail2ban_status.stdout }}"
