@@ -9,10 +9,10 @@
 Подключитесь к VPS и выполните:
 
 ```bash
-curl -fsSLo /tmp/vps-init.sh https://raw.githubusercontent.com/khetaghub/vps-initializer/install.sh && sudo bash /tmp/vps-init.sh
+curl -fsSLo /tmp/vps-init.sh https://raw.githubusercontent.com/khetaghub/vps-initializer/main/install.sh && sudo bash /tmp/vps-init.sh
 ```
 
-Скрипт загрузит проект в `/opt/vps-initializer` и последовательно выполнит все доступные модули.
+Скрипт загрузит проект из ветки `main` в `/opt/vps-initializer` и последовательно выполнит все доступные модули.
 
 > **Важно:** предназначен для первоначальной настройки чистого VPS. Повторная установка на уже настроенную систему не поддерживается.
 
