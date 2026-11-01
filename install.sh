@@ -27,7 +27,7 @@ if [[ -z "$DIR" || ! -d "$DIR/modules" ]]; then
 
     echo "[install] Скачивание проекта..."
     curl -fsSL \
-        "https://github.com/khetaghub/vps-initializer/archive/refs/heads/develop.tar.gz" \
+        "https://github.com/khetaghub/vps-initializer/archive/refs/heads/amnezia-vpn.tar.gz" \
         -o "$ARCHIVE"
 
     mkdir -p "$DEST"

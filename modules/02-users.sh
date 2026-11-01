@@ -5,6 +5,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG="${VPS_INIT_LOG_FILE:-$DIR/../install.log}"
 PREFIX="[install > ${VPS_INIT_MODULE:-users}]"
+USERNAME="amnezia-vpn"
 
 umask 077
 touch "$LOG"
@@ -31,71 +32,106 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 1. Запрос имени
-log "Введите имя нового администратора:"
-read -r username </dev/tty
-
-if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ || "$username" == "root" ]]; then
-    log "Недопустимое имя пользователя — ошибка"
+# 1. Проверка существования пользователя
+if id "$USERNAME" >/dev/null 2>&1; then
+    log "Пользователь '$USERNAME' уже существует — ошибка"
     exit 1
 fi
 
-# 2. Проверка существования
-if id "$username" >/dev/null 2>&1; then
-    log "Пользователь '$username' уже существует — ошибка"
-    exit 1
-fi
-
-# 3. Создание администратора
-run "Создание администратора" useradd -m -s /bin/bash "$username"
-run "Настройка sudo" usermod -aG sudo "$username"
-
-# 4. Установка пароля
-log "Установка пароля для '$username'..."
-
-if passwd "$username" </dev/tty >/dev/tty 2>&1; then
-    log "Установка пароля — успешно"
-else
-    log "Установка пароля — ошибка"
-    exit 1
-fi
-
-# 5. Настройка SSH-ключа
-log "Введите публичный SSH-ключ для '$username':"
+# 2. Запрос SSH-ключа
+log "Введите публичный SSH-ключ для '$USERNAME':"
 read -r ssh_key </dev/tty
 
-if [[ ! "$ssh_key" =~ ^(ssh-|ecdsa-) || "$ssh_key" != *' '* ]]; then
+if [[ ! "$ssh_key" =~ ^(ssh-|ecdsa-|sk-) ]]; then
     log "Некорректный формат SSH-ключа — ошибка"
     exit 1
 fi
 
-home="$(getent passwd "$username" | cut -d: -f6)"
+# Проверка корректности публичного ключа
+key_tmp="$(mktemp)"
+printf '%s\n' "$ssh_key" > "$key_tmp"
+
+if ! ssh-keygen -lf "$key_tmp" >/dev/null 2>&1; then
+    rm -f "$key_tmp"
+    log "Некорректный публичный SSH-ключ — ошибка"
+    exit 1
+fi
+
+rm -f "$key_tmp"
+
+# 3. Генерация пароля: 24 символа, 96 бит энтропии
+password="$(od -An -N12 -tx1 /dev/urandom | tr -d '[:space:]')"
+
+set_password() {
+    printf '%s:%s\n' "$USERNAME" "$password" | chpasswd
+}
+
+# 4. Настройка sudo без пароля
+configure_sudo() {
+    local target="/etc/sudoers.d/90-vps-initializer-$USERNAME"
+    local tmp
+
+    tmp="$(mktemp)" || return 1
+
+    if ! printf '%s ALL=(ALL:ALL) NOPASSWD:ALL\n' "$USERNAME" > "$tmp" ||
+       ! chmod 440 "$tmp" ||
+       ! visudo -cf "$tmp" >/dev/null; then
+        rm -f "$tmp"
+        return 1
+    fi
+
+    if ! install -o root -g root -m 440 "$tmp" "$target"; then
+        rm -f "$tmp"
+        return 1
+    fi
+
+    rm -f "$tmp"
+
+    if ! visudo -cf /etc/sudoers >/dev/null; then
+        rm -f "$target"
+        return 1
+    fi
+}
+
+# 5. Создание и настройка пользователя
+run "Создание пользователя '$USERNAME'" useradd -m -s /bin/bash "$USERNAME"
+run "Добавление в группу sudo" usermod -aG sudo "$USERNAME"
+run "Установка сгенерированного пароля" set_password
+run "Настройка sudo без пароля" configure_sudo
+
+# 6. Настройка SSH
+home="$(getent passwd "$USERNAME" | cut -d: -f6)"
 ssh_dir="$home/.ssh"
 key_file="$ssh_dir/authorized_keys"
 
 configure_ssh_key() {
     local group
-    group="$(id -gn "$username")"
+    group="$(id -gn "$USERNAME")" || return 1
 
-    install -d -m 700 -o "$username" -g "$group" "$ssh_dir"
-    touch "$key_file"
+    install -d -m 700 -o "$USERNAME" -g "$group" "$ssh_dir" || return 1
+    touch "$key_file" || return 1
 
     if ! grep -Fxq -- "$ssh_key" "$key_file"; then
-        printf '%s\n' "$ssh_key" >> "$key_file"
+        printf '%s\n' "$ssh_key" >> "$key_file" || return 1
     fi
 
-    chown "$username:$group" "$key_file"
+    chown "$USERNAME:$group" "$key_file" || return 1
     chmod 600 "$key_file"
 }
 
-# 6. Проверка результатов
+# 7. Проверка
 verify() {
-    id -nG "$username" | tr ' ' '\n' | grep -Fxq sudo &&
-    [[ "$(stat -c '%U:%a' "$ssh_dir")" == "$username:700" ]] &&
-    [[ "$(stat -c '%U:%a' "$key_file")" == "$username:600" ]] &&
+    id -nG "$USERNAME" | tr ' ' '\n' | grep -Fxq sudo &&
+    runuser -u "$USERNAME" -- sudo -n true &&
+    [[ "$(stat -c '%U:%a' "$ssh_dir")" == "$USERNAME:700" ]] &&
+    [[ "$(stat -c '%U:%a' "$key_file")" == "$USERNAME:600" ]] &&
     grep -Fxq -- "$ssh_key" "$key_file"
 }
 
 run "Настройка SSH-ключа" configure_ssh_key
 run "Проверка пользователя" verify
 
+# 8. Показ учётных данных только в терминале
+printf '\n%s\n' "[install > users] Пользователь: $USERNAME"
+printf '%s\n' "[install > users] Пароль: $password"
+printf '%s\n\n' "[install > users] Сохраните пароль: повторно он не выводится."

@@ -9,7 +9,7 @@
 Подключитесь к VPS и выполните:
 
 ```bash
-curl -fsSLo /tmp/vps-init.sh https://raw.githubusercontent.com/khetaghub/vps-initializer/main/install.sh && sudo bash /tmp/vps-init.sh
+curl -fsSLo /tmp/vps-init.sh https://raw.githubusercontent.com/khetaghub/vps-initializer/amnezia-vpn/install.sh && sudo bash /tmp/vps-init.sh
 ```
 
 Скрипт загрузит проект из ветки `main` в `/opt/vps-initializer` и последовательно выполнит все доступные модули.
